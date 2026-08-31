@@ -196,6 +196,11 @@ http://localhost:8000
 OpenTune/
 ├── static/
 │   └── index.html
+├── tests/
+│   └── test_app.py
+├── .github/
+│   └── workflows/
+│       └── tests.yml
 ├── docs/
 │   ├── opentune-1.png
 │   ├── opentune-2.png
@@ -286,7 +291,20 @@ Then:
 git checkout -b feature/my-feature
 ```
 
-Make your changes, test them locally, and open a pull request.
+Install the dependencies and run the test suite before opening a PR:
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 -m unittest discover -s tests -v
+```
+
+For UI or API changes, also start the app locally and verify the affected flow:
+
+```bash
+python3 app.py
+```
+
+Make your changes, test them locally, and open a pull request. GitHub Actions runs the unit tests automatically on pushes and pull requests.
 
 Good first contributions include UI improvements, bug fixes, mobile responsiveness, accessibility, search improvements, recommendation logic, documentation, and tests.
 
@@ -307,6 +325,16 @@ http://localhost:8000
 ```
 
 Before submitting a PR, make sure the app starts, search works, playback works, account functionality remains intact, and no secrets or runtime database files are committed.
+
+### Running tests
+
+The repository uses Python's built-in `unittest` framework. No separate test runner is required.
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The same command is executed by GitHub Actions for every push and pull request.
 
 ---
 
