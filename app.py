@@ -5,6 +5,7 @@ import traceback
 import sqlite3
 import secrets
 from hashlib import pbkdf2_hmac
+from hmac import compare_digest
 import urllib.request
 import time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -18,6 +19,8 @@ PORT = int(os.environ.get("PORT", "8000"))
 DB = ROOT / "opentune.db"
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
 HF_MODEL = os.environ.get("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct").strip()
+
+SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 
 
 def db():
@@ -64,7 +67,17 @@ def init_db():
       UNIQUE(user_id, video_id)
     );
     """)
+    cleanup_expired_sessions(c)
     c.commit(); c.close()
+
+
+def cleanup_expired_sessions(connection=None):
+    own_connection = connection is None
+    c = connection or db()
+    cutoff = time.time() - SESSION_TTL_SECONDS
+    c.execute("DELETE FROM sessions WHERE strftime('%s', created_at) < ?", (int(cutoff),))
+    if own_connection:
+        c.commit(); c.close()
 
 
 def hash_password(value, salt=None):
@@ -74,11 +87,12 @@ def hash_password(value, salt=None):
 
 
 def check_password(value, digest, salt):
-    return hash_password(value, salt)[0] == digest
+    return compare_digest(hash_password(value, salt)[0], digest)
 
 
 def user_from_token(token):
     if not token: return None
+    cleanup_expired_sessions()
     c = db(); row = c.execute("SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.token=?", (token,)).fetchone(); c.close()
     return row
 
@@ -163,7 +177,7 @@ def main():
                     username=str(data.get("username","")).strip(); recovery=str(data.get("recovery","")).lower(); newpw=str(data.get("password","")); c=db(); u=c.execute("SELECT * FROM users WHERE username=?",(username,)).fetchone()
                     if not u: c.close(); return send_json(self,{"error":"Account not found."},404)
                     if not check_password(recovery,u["recovery_hash"],u["recovery_salt"]): c.close(); return send_json(self,{"error":"Recovery answer is incorrect."},401)
-                    ph,ps=hash_password(newpw); c.execute("UPDATE users SET password_hash=? WHERE id=?",(ph+":"+ps,u["id"])); c.commit(); c.close(); return send_json(self,{"ok":True})
+                    ph,ps=hash_password(newpw); c.execute("UPDATE users SET password_hash=? WHERE id=?",(ph+":"+ps,u["id"])); c.execute("DELETE FROM sessions WHERE user_id=?",(u["id"],)); c.commit(); c.close(); return send_json(self,{"ok":True})
                 if p.path=="/api/auth/logout":
                     token=self.headers.get("Authorization","").removeprefix("Bearer "); c=db(); c.execute("DELETE FROM sessions WHERE token=?",(token,)); c.commit(); c.close(); return send_json(self,{"ok":True})
                 token=self.headers.get("Authorization","").removeprefix("Bearer "); u=user_from_token(token)
