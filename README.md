@@ -38,6 +38,7 @@ It is designed to feel familiar to YouTube Music while using a custom **OpenTune
 ### ❤️ Personal library
 - Like songs
 - Listening history
+- Private playlists with owned song collections
 - Queue
 - Optional account system
 
@@ -136,6 +137,21 @@ OpenTune is styled around the **@harshitethic** portfolio aesthetic:
 ```
 
 OpenTune does **not** download, extract, or re-host YouTube audio.
+
+### Playlist API
+
+The backend now supports authenticated private playlists:
+
+```text
+GET    /api/playlists
+POST   /api/playlists
+GET    /api/playlists/{playlist_id}
+POST   /api/playlists/{playlist_id}/items
+DELETE /api/playlists/{playlist_id}/items/{video_id}
+DELETE /api/playlists/{playlist_id}
+```
+
+Playlist names and media metadata are bounded and validated before persistence. Duplicate songs in the same playlist are ignored instead of creating duplicate rows.
 
 ---
 
@@ -239,6 +255,8 @@ Do not use a password you use for important external accounts.
 
 The built-in recovery-question system is intentionally simple and **should not be treated as enterprise-grade authentication**.
 
+Authenticated users can create private playlists through the backend API. Playlist ownership is enforced on reads, item mutations, and deletion. SQLite foreign keys cascade playlist items when a playlist or owning user is removed.
+
 ---
 
 ## ⚠️ Important
@@ -265,7 +283,7 @@ Users are responsible for complying with the terms and laws applicable to the se
 - [ ] Better recommendation engine
 - [ ] Improved mobile experience
 - [ ] PWA / installable app
-- [ ] Playlists
+- [x] Playlists
 - [ ] Public playlists
 - [ ] Artist pages
 - [ ] Album pages
