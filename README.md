@@ -239,6 +239,20 @@ Do not use a password you use for important external accounts.
 
 The built-in recovery-question system is intentionally simple and **should not be treated as enterprise-grade authentication**.
 
+### Delete an account
+
+Authenticated users can permanently delete their OpenTune account by confirming the current password:
+
+```http
+POST /api/auth/delete
+Authorization: Bearer <session token>
+Content-Type: application/json
+
+{"password": "current password"}
+```
+
+Deletion is transactional: the user row, every active session, listening history, and likes are removed together. If password confirmation fails, no account data is changed.
+
 ---
 
 ## ⚠️ Important
