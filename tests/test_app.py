@@ -14,6 +14,48 @@ class PasswordHashingTests(unittest.TestCase):
         self.assertFalse(app.check_password("wrong", digest, salt))
 
 
+class LibraryItemValidationTests(unittest.TestCase):
+    def test_accepts_valid_library_item(self):
+        item = app.validate_library_item(
+            {
+                "videoId": "abc123",
+                "title": "Song",
+                "artist": "Artist",
+                "thumbnail": "https://example.test/thumb.jpg",
+            }
+        )
+        self.assertEqual(
+            item,
+            (
+                "abc123",
+                "Song",
+                "Artist",
+                "https://example.test/thumb.jpg",
+            ),
+        )
+
+    def test_rejects_non_string_metadata(self):
+        with self.assertRaisesRegex(ValueError, "title must be a string"):
+            app.validate_library_item(
+                {"videoId": "abc123", "title": {"unexpected": "object"}}
+            )
+
+    def test_rejects_oversized_video_id(self):
+        with self.assertRaisesRegex(ValueError, "videoId is too long"):
+            app.validate_library_item(
+                {"videoId": "x" * (app.MAX_VIDEO_ID_LENGTH + 1)}
+            )
+
+    def test_rejects_oversized_thumbnail(self):
+        with self.assertRaisesRegex(ValueError, "thumbnail is too long"):
+            app.validate_library_item(
+                {
+                    "videoId": "abc123",
+                    "thumbnail": "x" * (app.MAX_THUMBNAIL_LENGTH + 1),
+                }
+            )
+
+
 class PayloadValidationTests(unittest.TestCase):
     def test_validate_username(self):
         self.assertTrue(app.validate_username("harshit"))
