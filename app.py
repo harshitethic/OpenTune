@@ -1,6 +1,7 @@
 import json
 import mimetypes
 import os
+import re
 import traceback
 import sqlite3
 import secrets
@@ -10,7 +11,7 @@ import urllib.request
 import time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 from ytmusicapi import YTMusic
 
 ROOT = Path(__file__).resolve().parent
@@ -24,6 +25,10 @@ MAX_BODY_BYTES = 64 * 1024
 MAX_USERNAME_LENGTH = 32
 MIN_PASSWORD_LENGTH = 4
 MAX_PASSWORD_LENGTH = 256
+MAX_PLAYLIST_NAME_LENGTH = 80
+MAX_MEDIA_ID_LENGTH = 128
+MAX_MEDIA_TEXT_LENGTH = 500
+MAX_THUMBNAIL_LENGTH = 2048
 
 
 def db():
@@ -31,6 +36,7 @@ def db():
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA busy_timeout=10000")
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA foreign_keys=ON")
     return c
 
 
@@ -69,6 +75,25 @@ def init_db():
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(user_id, video_id)
     );
+    CREATE TABLE IF NOT EXISTS playlists (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, name),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS playlist_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      playlist_id INTEGER NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT,
+      artist TEXT,
+      thumbnail TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(playlist_id, video_id),
+      FOREIGN KEY(playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+    );
     """)
     c.commit(); c.close()
 
@@ -94,6 +119,164 @@ def validate_username(username):
 
 def validate_password(password):
     return isinstance(password, str) and MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH
+
+
+def validate_playlist_name(name):
+    if not isinstance(name, str):
+        raise ValueError("Playlist name must be a string")
+    name = name.strip()
+    if not name:
+        raise ValueError("Playlist name is required")
+    if len(name) > MAX_PLAYLIST_NAME_LENGTH:
+        raise ValueError("Playlist name is too long")
+    return name
+
+
+def normalize_playlist_item(data):
+    video_id = data.get("videoId")
+    if not isinstance(video_id, str):
+        raise ValueError("videoId must be a string")
+    video_id = video_id.strip()
+    if not video_id:
+        raise ValueError("videoId is required")
+    if len(video_id) > MAX_MEDIA_ID_LENGTH:
+        raise ValueError("videoId is too long")
+
+    def optional_text(name, max_length):
+        value = data.get(name)
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be a string")
+        if len(value) > max_length:
+            raise ValueError(f"{name} is too long")
+        return value
+
+    return (
+        video_id,
+        optional_text("title", MAX_MEDIA_TEXT_LENGTH),
+        optional_text("artist", MAX_MEDIA_TEXT_LENGTH),
+        optional_text("thumbnail", MAX_THUMBNAIL_LENGTH),
+    )
+
+
+def _owned_playlist(connection, user_id, playlist_id):
+    row = connection.execute(
+        "SELECT * FROM playlists WHERE id=? AND user_id=?",
+        (playlist_id, user_id),
+    ).fetchone()
+    if not row:
+        raise LookupError("Playlist not found")
+    return row
+
+
+def create_playlist(user_id, name):
+    name = validate_playlist_name(name)
+    connection = db()
+    try:
+        cursor = connection.execute(
+            "INSERT INTO playlists(user_id,name) VALUES(?,?)",
+            (user_id, name),
+        )
+        connection.commit()
+        return dict(
+            connection.execute(
+                "SELECT * FROM playlists WHERE id=?",
+                (cursor.lastrowid,),
+            ).fetchone()
+        )
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("A playlist with that name already exists") from exc
+    finally:
+        connection.close()
+
+
+def list_playlists(user_id):
+    connection = db()
+    try:
+        rows = connection.execute(
+            """
+            SELECT p.id,p.name,p.created_at,COUNT(i.id) AS item_count
+            FROM playlists p
+            LEFT JOIN playlist_items i ON i.playlist_id=p.id
+            WHERE p.user_id=?
+            GROUP BY p.id
+            ORDER BY p.id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def get_playlist(user_id, playlist_id):
+    connection = db()
+    try:
+        playlist = dict(_owned_playlist(connection, user_id, playlist_id))
+        items = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT id,video_id,title,artist,thumbnail,created_at
+                FROM playlist_items
+                WHERE playlist_id=?
+                ORDER BY id DESC
+                """,
+                (playlist_id,),
+            )
+        ]
+        playlist["items"] = items
+        playlist["item_count"] = len(items)
+        return playlist
+    finally:
+        connection.close()
+
+
+def add_playlist_item(user_id, playlist_id, data):
+    video_id, title, artist, thumbnail = normalize_playlist_item(data)
+    connection = db()
+    try:
+        _owned_playlist(connection, user_id, playlist_id)
+        cursor = connection.execute(
+            """
+            INSERT OR IGNORE INTO playlist_items(
+              playlist_id,video_id,title,artist,thumbnail
+            ) VALUES(?,?,?,?,?)
+            """,
+            (playlist_id, video_id, title, artist, thumbnail),
+        )
+        connection.commit()
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
+def remove_playlist_item(user_id, playlist_id, video_id):
+    connection = db()
+    try:
+        _owned_playlist(connection, user_id, playlist_id)
+        cursor = connection.execute(
+            "DELETE FROM playlist_items WHERE playlist_id=? AND video_id=?",
+            (playlist_id, video_id),
+        )
+        connection.commit()
+        return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
+def delete_playlist(user_id, playlist_id):
+    connection = db()
+    try:
+        _owned_playlist(connection, user_id, playlist_id)
+        connection.execute(
+            "DELETE FROM playlists WHERE id=? AND user_id=?",
+            (playlist_id, user_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def user_from_token(token):
