@@ -103,10 +103,14 @@ def user_from_token(token):
 
 
 def body(handler):
+    if handler.headers.get("Transfer-Encoding"):
+        raise ValueError("Transfer-Encoding is not supported")
     try:
         n = int(handler.headers.get("Content-Length", "0"))
     except ValueError:
         raise ValueError("Invalid Content-Length")
+    if n < 0:
+        raise ValueError("Content-Length cannot be negative")
     if n > MAX_BODY_BYTES:
         raise ValueError("Request body is too large")
     raw = handler.rfile.read(n) if n else b"{}"
