@@ -1,3 +1,4 @@
+import io
 import unittest
 
 import app
@@ -12,6 +13,37 @@ class PasswordHashingTests(unittest.TestCase):
     def test_wrong_password_does_not_match(self):
         digest, salt = app.hash_password("correct", "fixed-salt")
         self.assertFalse(app.check_password("wrong", digest, salt))
+
+
+class RequestBodyFramingTests(unittest.TestCase):
+    class Handler:
+        def __init__(self, headers, payload=b""):
+            self.headers = headers
+            self.rfile = io.BytesIO(payload)
+
+    def test_negative_content_length_is_rejected(self):
+        handler = self.Handler({"Content-Length": "-1"}, b'{"x": 1}')
+
+        with self.assertRaisesRegex(ValueError, "cannot be negative"):
+            app.body(handler)
+
+    def test_transfer_encoding_is_rejected(self):
+        handler = self.Handler(
+            {"Transfer-Encoding": "chunked"},
+            b'7\r\n{"x":1}\r\n0\r\n\r\n',
+        )
+
+        with self.assertRaisesRegex(ValueError, "Transfer-Encoding"):
+            app.body(handler)
+
+    def test_valid_content_length_still_parses_json(self):
+        payload = b'{"x": 1}'
+        handler = self.Handler(
+            {"Content-Length": str(len(payload))},
+            payload,
+        )
+
+        self.assertEqual(app.body(handler), {"x": 1})
 
 
 class PayloadValidationTests(unittest.TestCase):
