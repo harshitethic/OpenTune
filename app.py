@@ -102,6 +102,36 @@ def user_from_token(token):
     return row
 
 
+def delete_account(user_id, password):
+    if not validate_password(password):
+        raise ValueError("A valid password is required")
+
+    connection = db()
+    try:
+        user = connection.execute(
+            "SELECT * FROM users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+        if not user:
+            raise LookupError("Account not found")
+
+        digest, salt = user["password_hash"].split(":", 1)
+        if not check_password(password, digest, salt):
+            raise PermissionError("Password is incorrect")
+
+        connection.execute("BEGIN")
+        connection.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+        connection.execute("DELETE FROM history WHERE user_id=?", (user_id,))
+        connection.execute("DELETE FROM likes WHERE user_id=?", (user_id,))
+        connection.execute("DELETE FROM users WHERE id=?", (user_id,))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def body(handler):
     try:
         n = int(handler.headers.get("Content-Length", "0"))
@@ -205,6 +235,17 @@ def main():
                     ph,ps=hash_password(newpw); c.execute("UPDATE users SET password_hash=? WHERE id=?",(ph+":"+ps,u["id"])); c.commit(); c.close(); return send_json(self,{"ok":True})
                 if p.path=="/api/auth/logout":
                     token=self.headers.get("Authorization","").removeprefix("Bearer "); c=db(); c.execute("DELETE FROM sessions WHERE token=?",(token,)); c.commit(); c.close(); return send_json(self,{"ok":True})
+                if p.path=="/api/auth/delete":
+                    token=self.headers.get("Authorization","").removeprefix("Bearer ")
+                    u=user_from_token(token)
+                    if not u: return send_json(self,{"error":"Login required"},401)
+                    try:
+                        delete_account(u["id"],data.get("password"))
+                    except PermissionError:
+                        return send_json(self,{"error":"Password is incorrect"},401)
+                    except LookupError:
+                        return send_json(self,{"error":"Account not found"},404)
+                    return send_json(self,{"ok":True,"deleted":True})
                 token=self.headers.get("Authorization","").removeprefix("Bearer "); u=user_from_token(token)
                 if p.path=="/api/history":
                     if not u: return send_json(self,{"error":"Login required"},401)
