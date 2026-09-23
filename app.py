@@ -350,6 +350,19 @@ def main():
                     u=user_from_token(self.headers.get("Authorization","").removeprefix("Bearer "))
                     if not u: return send_json(self,{"likes":[]})
                     c=db(); rows=[dict(r) for r in c.execute("SELECT * FROM likes WHERE user_id=? ORDER BY id DESC",(u["id"],))]; c.close(); return send_json(self,{"likes":rows})
+                if p.path=="/api/playlists":
+                    u=user_from_token(self.headers.get("Authorization","").removeprefix("Bearer "))
+                    if not u: return send_json(self,{"error":"Login required"},401)
+                    return send_json(self,{"playlists":list_playlists(u["id"])})
+                playlist_match=re.fullmatch(r"/api/playlists/(\d+)",p.path)
+                if playlist_match:
+                    u=user_from_token(self.headers.get("Authorization","").removeprefix("Bearer "))
+                    if not u: return send_json(self,{"error":"Login required"},401)
+                    try:
+                        playlist=get_playlist(u["id"],int(playlist_match.group(1)))
+                    except LookupError:
+                        return send_json(self,{"error":"Playlist not found"},404)
+                    return send_json(self,{"playlist":playlist})
                 file=(STATIC / ("index.html" if p.path=="/" else p.path.lstrip("/"))).resolve()
                 if STATIC not in file.parents and file!=STATIC: return send_json(self,{"error":"not found"},404)
                 if not file.exists() or not file.is_file(): return send_json(self,{"error":"not found"},404)
@@ -399,10 +412,56 @@ def main():
                     video_id=str(data.get("videoId","")).strip()
                     if not video_id: return send_json(self,{"error":"videoId is required"},400)
                     c=db(); c.execute("INSERT OR IGNORE INTO likes(user_id,video_id,title,artist,thumbnail) VALUES(?,?,?,?,?)",(u["id"],video_id,data.get("title"),data.get("artist"),data.get("thumbnail"))); c.commit(); c.close(); return send_json(self,{"ok":True})
+                if p.path=="/api/playlists":
+                    if not u: return send_json(self,{"error":"Login required"},401)
+                    playlist=create_playlist(u["id"],data.get("name"))
+                    return send_json(self,{"playlist":playlist},201)
+                playlist_items_match=re.fullmatch(r"/api/playlists/(\d+)/items",p.path)
+                if playlist_items_match:
+                    if not u: return send_json(self,{"error":"Login required"},401)
+                    try:
+                        added=add_playlist_item(u["id"],int(playlist_items_match.group(1)),data)
+                    except LookupError:
+                        return send_json(self,{"error":"Playlist not found"},404)
+                    return send_json(self,{"ok":True,"added":added})
                 send_json(self,{"error":"not found"},404)
             except ValueError as e:
                 send_json(self,{"error":str(e)},400)
             except Exception as e:
+                traceback.print_exc(); send_json(self,{"error":"Internal server error"},500)
+
+        def do_DELETE(self):
+            try:
+                p=urlparse(self.path)
+                token=self.headers.get("Authorization","").removeprefix("Bearer ")
+                u=user_from_token(token)
+                if not u:
+                    return send_json(self,{"error":"Login required"},401)
+
+                playlist_match=re.fullmatch(r"/api/playlists/(\d+)",p.path)
+                if playlist_match:
+                    try:
+                        delete_playlist(u["id"],int(playlist_match.group(1)))
+                    except LookupError:
+                        return send_json(self,{"error":"Playlist not found"},404)
+                    return send_json(self,{"ok":True})
+
+                item_match=re.fullmatch(r"/api/playlists/(\d+)/items/([^/]+)",p.path)
+                if item_match:
+                    try:
+                        removed=remove_playlist_item(
+                            u["id"],
+                            int(item_match.group(1)),
+                            unquote(item_match.group(2)),
+                        )
+                    except LookupError:
+                        return send_json(self,{"error":"Playlist not found"},404)
+                    return send_json(self,{"ok":True,"removed":removed})
+
+                send_json(self,{"error":"not found"},404)
+            except ValueError as e:
+                send_json(self,{"error":str(e)},400)
+            except Exception:
                 traceback.print_exc(); send_json(self,{"error":"Internal server error"},500)
 
     server=ThreadingHTTPServer(("0.0.0.0",PORT),Handler)
