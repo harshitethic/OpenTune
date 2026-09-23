@@ -24,6 +24,9 @@ MAX_BODY_BYTES = 64 * 1024
 MAX_USERNAME_LENGTH = 32
 MIN_PASSWORD_LENGTH = 4
 MAX_PASSWORD_LENGTH = 256
+MAX_VIDEO_ID_LENGTH = 128
+MAX_MEDIA_TEXT_LENGTH = 500
+MAX_THUMBNAIL_LENGTH = 2048
 
 
 def db():
@@ -94,6 +97,34 @@ def validate_username(username):
 
 def validate_password(password):
     return isinstance(password, str) and MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH
+
+
+def validate_library_item(data):
+    video_id = data.get("videoId")
+    if not isinstance(video_id, str):
+        raise ValueError("videoId must be a string")
+    video_id = video_id.strip()
+    if not video_id:
+        raise ValueError("videoId is required")
+    if len(video_id) > MAX_VIDEO_ID_LENGTH:
+        raise ValueError("videoId is too long")
+
+    def optional_text(name, max_length):
+        value = data.get(name)
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be a string")
+        if len(value) > max_length:
+            raise ValueError(f"{name} is too long")
+        return value
+
+    return (
+        video_id,
+        optional_text("title", MAX_MEDIA_TEXT_LENGTH),
+        optional_text("artist", MAX_MEDIA_TEXT_LENGTH),
+        optional_text("thumbnail", MAX_THUMBNAIL_LENGTH),
+    )
 
 
 def user_from_token(token):
@@ -208,14 +239,12 @@ def main():
                 token=self.headers.get("Authorization","").removeprefix("Bearer "); u=user_from_token(token)
                 if p.path=="/api/history":
                     if not u: return send_json(self,{"error":"Login required"},401)
-                    video_id=str(data.get("videoId","")).strip()
-                    if not video_id: return send_json(self,{"error":"videoId is required"},400)
-                    c=db(); c.execute("INSERT INTO history(user_id,video_id,title,artist,thumbnail) VALUES(?,?,?,?,?)",(u["id"],video_id,data.get("title"),data.get("artist"),data.get("thumbnail"))); c.commit(); c.close(); return send_json(self,{"ok":True})
+                    video_id,title,artist,thumbnail=validate_library_item(data)
+                    c=db(); c.execute("INSERT INTO history(user_id,video_id,title,artist,thumbnail) VALUES(?,?,?,?,?)",(u["id"],video_id,title,artist,thumbnail)); c.commit(); c.close(); return send_json(self,{"ok":True})
                 if p.path=="/api/likes":
                     if not u: return send_json(self,{"error":"Login required"},401)
-                    video_id=str(data.get("videoId","")).strip()
-                    if not video_id: return send_json(self,{"error":"videoId is required"},400)
-                    c=db(); c.execute("INSERT OR IGNORE INTO likes(user_id,video_id,title,artist,thumbnail) VALUES(?,?,?,?,?)",(u["id"],video_id,data.get("title"),data.get("artist"),data.get("thumbnail"))); c.commit(); c.close(); return send_json(self,{"ok":True})
+                    video_id,title,artist,thumbnail=validate_library_item(data)
+                    c=db(); c.execute("INSERT OR IGNORE INTO likes(user_id,video_id,title,artist,thumbnail) VALUES(?,?,?,?,?)",(u["id"],video_id,title,artist,thumbnail)); c.commit(); c.close(); return send_json(self,{"ok":True})
                 send_json(self,{"error":"not found"},404)
             except ValueError as e:
                 send_json(self,{"error":str(e)},400)
