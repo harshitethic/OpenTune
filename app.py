@@ -84,6 +84,20 @@ def check_password(value, digest, salt):
     return compare_digest(candidate, digest)
 
 
+def replace_password_and_revoke_sessions(user_id, password):
+    ph, ps = hash_password(password)
+    c = db()
+    try:
+        c.execute(
+            "UPDATE users SET password_hash=? WHERE id=?",
+            (ph + ":" + ps, user_id),
+        )
+        c.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+        c.commit()
+    finally:
+        c.close()
+
+
 def validate_username(username):
     if not isinstance(username, str):
         return False
@@ -202,7 +216,7 @@ def main():
                     c=db(); u=c.execute("SELECT * FROM users WHERE username=?",(username,)).fetchone()
                     if not u: c.close(); return send_json(self,{"error":"Account not found."},404)
                     if not check_password(recovery,u["recovery_hash"],u["recovery_salt"]): c.close(); return send_json(self,{"error":"Recovery answer is incorrect."},401)
-                    ph,ps=hash_password(newpw); c.execute("UPDATE users SET password_hash=? WHERE id=?",(ph+":"+ps,u["id"])); c.commit(); c.close(); return send_json(self,{"ok":True})
+                    c.close(); replace_password_and_revoke_sessions(u["id"], newpw); return send_json(self,{"ok":True})
                 if p.path=="/api/auth/logout":
                     token=self.headers.get("Authorization","").removeprefix("Bearer "); c=db(); c.execute("DELETE FROM sessions WHERE token=?",(token,)); c.commit(); c.close(); return send_json(self,{"ok":True})
                 token=self.headers.get("Authorization","").removeprefix("Bearer "); u=user_from_token(token)
