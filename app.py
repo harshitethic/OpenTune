@@ -102,6 +102,16 @@ def user_from_token(token):
     return row
 
 
+def public_user(user):
+    if not user:
+        return None
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "created_at": user["created_at"],
+    }
+
+
 def body(handler):
     try:
         n = int(handler.headers.get("Content-Length", "0"))
@@ -158,7 +168,7 @@ def main():
                     return send_json(self,{"results":search_music(query)})
                 if p.path=="/api/auth/me":
                     u=user_from_token(self.headers.get("Authorization","").removeprefix("Bearer "))
-                    return send_json(self,{"user":dict(u) if u else None})
+                    return send_json(self,{"user":public_user(u)})
                 if p.path=="/api/history":
                     u=user_from_token(self.headers.get("Authorization","").removeprefix("Bearer "))
                     if not u: return send_json(self,{"history":[]})
