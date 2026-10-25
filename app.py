@@ -34,6 +34,18 @@ def db():
     return c
 
 
+def database_ready():
+    """Report unhealthy if SQLite cannot accept a read query."""
+    try:
+        connection = db()
+        try:
+            return connection.execute("SELECT 1").fetchone()[0] == 1
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return False
+
+
 def init_db():
     c = db()
     c.executescript("""
@@ -150,7 +162,9 @@ def main():
         def do_GET(self):
             try:
                 p=urlparse(self.path); q=parse_qs(p.query)
-                if p.path=="/api/health": return send_json(self,{"ok":True})
+                if p.path=="/api/health":
+                    ready=database_ready()
+                    return send_json(self,{"ok":ready},200 if ready else 503)
                 if p.path=="/api/search":
                     query=(q.get("q") or [""])[0].strip()
                     if not query: return send_json(self,{"results":[]})
