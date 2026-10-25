@@ -107,6 +107,8 @@ def body(handler):
         n = int(handler.headers.get("Content-Length", "0"))
     except ValueError:
         raise ValueError("Invalid Content-Length")
+    if n < 0:
+        raise ValueError("Invalid Content-Length")
     if n > MAX_BODY_BYTES:
         raise ValueError("Request body is too large")
     raw = handler.rfile.read(n) if n else b"{}"
