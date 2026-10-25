@@ -3,6 +3,19 @@ import unittest
 import app
 
 
+class PublicUserTests(unittest.TestCase):
+    def test_only_public_fields_are_returned(self):
+        record = {"id": 12, "username": "listener", "created_at": "2026-01-01",
+                  "password_hash": "sensitive", "recovery_hash": "secret",
+                  "recovery_salt": "also-secret"}
+        self.assertEqual(app.public_user(record), {
+            "id": 12, "username": "listener", "created_at": "2026-01-01"
+        })
+
+    def test_absent_session_returns_none(self):
+        self.assertIsNone(app.public_user(None))
+
+
 class PasswordHashingTests(unittest.TestCase):
     def test_hash_is_deterministic_for_same_salt(self):
         digest1, salt = app.hash_password("open-tune", "fixed-salt")
