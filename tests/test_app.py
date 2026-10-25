@@ -1,6 +1,31 @@
+import io
 import unittest
+from types import SimpleNamespace
 
 import app
+
+
+class RequestBodyLengthTests(unittest.TestCase):
+    def test_negative_length_is_rejected_without_unbounded_read(self):
+        stream = io.BytesIO(b'{"secret":"ignored"}')
+        request = SimpleNamespace(headers={"Content-Length": "-1"}, rfile=stream)
+        with self.assertRaisesRegex(ValueError, "Invalid Content-Length"):
+            app.body(request)
+        self.assertEqual(stream.tell(), 0)
+
+    def test_valid_length_reads_only_declared_bytes(self):
+        payload = b'{"ok":true}'
+        stream = io.BytesIO(payload + b"trailing")
+        request = SimpleNamespace(headers={"Content-Length": str(len(payload))}, rfile=stream)
+        self.assertEqual(app.body(request), {"ok": True})
+        self.assertEqual(stream.tell(), len(payload))
+
+    def test_oversized_body_is_rejected_before_read(self):
+        stream = io.BytesIO(b"{}")
+        request = SimpleNamespace(headers={"Content-Length": str(app.MAX_BODY_BYTES + 1)}, rfile=stream)
+        with self.assertRaisesRegex(ValueError, "too large"):
+            app.body(request)
+        self.assertEqual(stream.tell(), 0)
 
 
 class PasswordHashingTests(unittest.TestCase):
