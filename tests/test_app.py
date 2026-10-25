@@ -1,6 +1,22 @@
+import sqlite3
 import unittest
 
 import app
+
+
+class RecentHistoryTests(unittest.TestCase):
+    def test_history_is_bounded_per_user_and_keeps_newest(self):
+        connection = sqlite3.connect(":memory:")
+        try:
+            connection.execute("CREATE TABLE history(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, video_id TEXT, title TEXT, artist TEXT, thumbnail TEXT)")
+            app.add_history(connection, 2, "other-user")
+            for index in range(105):
+                app.add_history(connection, 1, str(index))
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM history WHERE user_id=1").fetchone()[0], 100)
+            self.assertEqual(connection.execute("SELECT MIN(CAST(video_id AS INT)), MAX(CAST(video_id AS INT)) FROM history WHERE user_id=1").fetchone(), (5, 104))
+            self.assertEqual(connection.execute("SELECT video_id FROM history WHERE user_id=2").fetchone(), ("other-user",))
+        finally:
+            connection.close()
 
 
 class PasswordHashingTests(unittest.TestCase):
