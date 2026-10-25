@@ -102,6 +102,11 @@ def user_from_token(token):
     return row
 
 
+def reject_nonfinite_json(value):
+    """JSON does not permit NaN and Infinity even though Python's decoder does."""
+    raise ValueError("Request body contains a non-finite JSON number")
+
+
 def body(handler):
     try:
         n = int(handler.headers.get("Content-Length", "0"))
@@ -111,8 +116,8 @@ def body(handler):
         raise ValueError("Request body is too large")
     raw = handler.rfile.read(n) if n else b"{}"
     try:
-        parsed = json.loads(raw or b"{}")
-    except json.JSONDecodeError as exc:
+        parsed = json.loads(raw or b"{}", parse_constant=reject_nonfinite_json)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValueError("Request body must be valid JSON") from exc
     if not isinstance(parsed, dict):
         raise ValueError("Request body must be a JSON object")
