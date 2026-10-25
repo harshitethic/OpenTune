@@ -98,7 +98,7 @@ def validate_password(password):
 
 def user_from_token(token):
     if not token: return None
-    c = db(); row = c.execute("SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.token=?", (token,)).fetchone(); c.close()
+    c = db(); row = c.execute("SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.token=? AND s.created_at >= datetime(\'now\', \'-30 days\')", (token,)).fetchone(); c.close()
     return row
 
 
