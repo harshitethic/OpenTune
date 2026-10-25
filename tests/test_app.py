@@ -1,6 +1,19 @@
+import sqlite3
 import unittest
+from unittest.mock import patch
 
 import app
+
+
+class ReadinessTests(unittest.TestCase):
+    def test_sqlite_connection_failure_is_unhealthy(self):
+        with patch("app.db", side_effect=sqlite3.OperationalError("database locked")):
+            self.assertFalse(app.database_ready())
+
+    def test_healthy_sqlite_connection_is_ready(self):
+        connection = sqlite3.connect(":memory:")
+        with patch("app.db", return_value=connection):
+            self.assertTrue(app.database_ready())
 
 
 class PasswordHashingTests(unittest.TestCase):
