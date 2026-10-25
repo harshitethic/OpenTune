@@ -1,6 +1,24 @@
 import unittest
+from unittest.mock import patch, MagicMock
 
 import app
+
+
+class MusicCatalogTests(unittest.TestCase):
+    @patch("app.YTMusic")
+    def test_partial_metadata_does_not_break_search(self, yt_music):
+        instance = MagicMock()
+        instance.search.return_value = [
+            {"videoId": "good", "title": "Song", "artists": [None, {"name": "Singer"}],
+             "thumbnails": [None, {"url": "https://example.invalid/thumb.jpg"}]},
+            {"videoId": "minimal", "artists": [], "thumbnails": [None]},
+            None, {"title": "missing video id"},
+        ]
+        yt_music.return_value = instance
+        songs = app.search_music("query")
+        self.assertEqual([song["videoId"] for song in songs], ["good", "minimal"])
+        self.assertEqual(songs[0]["artist"], "Singer")
+        self.assertEqual(songs[1]["thumbnail"], "")
 
 
 class PasswordHashingTests(unittest.TestCase):
