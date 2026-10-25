@@ -1,6 +1,28 @@
+import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import app
+
+
+class SessionExpirationTests(unittest.TestCase):
+    def test_expired_session_cannot_authenticate(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(app, "DB", Path(directory) / "sessions.db"):
+            app.init_db()
+            connection = sqlite3.connect(app.DB)
+            try:
+                connection.execute("INSERT INTO users(username,password_hash,recovery_hash,recovery_salt) VALUES(?,?,?,?)",
+                                   ("listener", "hash:salt", "hash", "salt"))
+                user_id = connection.execute("SELECT id FROM users").fetchone()[0]
+                connection.execute("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,datetime('now','-31 days'))", ("stale", user_id))
+                connection.execute("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,datetime('now','-1 day'))", ("fresh", user_id))
+                connection.commit()
+            finally:
+                connection.close()
+            self.assertIsNone(app.user_from_token("stale"))
+            self.assertEqual(app.user_from_token("fresh")["username"], "listener")
 
 
 class PasswordHashingTests(unittest.TestCase):
