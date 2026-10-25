@@ -59,6 +59,7 @@ def init_db():
       thumbnail TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE INDEX IF NOT EXISTS history_user_recent ON history(user_id,id DESC);
     CREATE TABLE IF NOT EXISTS likes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -71,6 +72,20 @@ def init_db():
     );
     """)
     c.commit(); c.close()
+
+
+def add_history(connection, user_id, video_id, title=None, artist=None, thumbnail=None):
+    """Persist a play and keep only the 100 entries returned by the history API."""
+    connection.execute(
+        "INSERT INTO history(user_id,video_id,title,artist,thumbnail) VALUES(?,?,?,?,?)",
+        (user_id, video_id, title, artist, thumbnail),
+    )
+    connection.execute(
+        "DELETE FROM history WHERE user_id=? AND id NOT IN "
+        "(SELECT id FROM history WHERE user_id=? ORDER BY id DESC LIMIT 100)",
+        (user_id, user_id),
+    )
+    connection.commit()
 
 
 def hash_password(value, salt=None):
@@ -210,7 +225,7 @@ def main():
                     if not u: return send_json(self,{"error":"Login required"},401)
                     video_id=str(data.get("videoId","")).strip()
                     if not video_id: return send_json(self,{"error":"videoId is required"},400)
-                    c=db(); c.execute("INSERT INTO history(user_id,video_id,title,artist,thumbnail) VALUES(?,?,?,?,?)",(u["id"],video_id,data.get("title"),data.get("artist"),data.get("thumbnail"))); c.commit(); c.close(); return send_json(self,{"ok":True})
+                    c=db(); add_history(c,u["id"],video_id,data.get("title"),data.get("artist"),data.get("thumbnail")); c.close(); return send_json(self,{"ok":True})
                 if p.path=="/api/likes":
                     if not u: return send_json(self,{"error":"Login required"},401)
                     video_id=str(data.get("videoId","")).strip()
