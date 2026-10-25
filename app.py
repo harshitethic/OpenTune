@@ -133,10 +133,22 @@ def search_music(query):
     rows = ytm.search(query, filter="songs", limit=25)
     result=[]
     for x in rows:
-        vid=x.get("videoId")
-        if not vid: continue
-        artists=x.get("artists") or []
-        result.append({"videoId":vid,"title":x.get("title") or "Unknown","artist":", ".join(a.get("name","") for a in artists),"duration":x.get("duration",""),"thumbnail":(x.get("thumbnails") or [{}])[-1].get("url","")})
+        if not isinstance(x, dict):
+            continue
+        vid = x.get("videoId")
+        if not isinstance(vid, str) or not vid:
+            continue
+        artists = x.get("artists") or []
+        names = [a.get("name") for a in artists if isinstance(a, dict) and isinstance(a.get("name"), str)]
+        thumbnails = x.get("thumbnails") or []
+        thumbnail = next(
+            (image["url"] for image in reversed(thumbnails)
+             if isinstance(image, dict) and isinstance(image.get("url"), str)),
+            "",
+        )
+        result.append({"videoId": vid, "title": x.get("title") or "Unknown",
+                       "artist": ", ".join(names), "duration": x.get("duration", ""),
+                       "thumbnail": thumbnail})
     return result
 
 
